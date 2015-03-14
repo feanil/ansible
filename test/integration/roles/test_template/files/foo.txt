@@ -1,1 +1,6 @@
 templated_var_loaded
+
+{
+    "bool": true, 
+    "number": 5
+}

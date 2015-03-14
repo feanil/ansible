@@ -1,1 +1,7 @@
 templated_var: templated_var_loaded
+
+number_var: 5
+bool_var: true
+templated_dict:
+  number: "{{ number_var }}"
+  bool: "{{ bool_var }}"

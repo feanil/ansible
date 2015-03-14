@@ -80,6 +80,11 @@ class Flags:
 
 FILTER_PLUGINS = None
 _LISTRE = re.compile(r"(\w+)\[(\d+)\]")
+
+# A regex for checking to see if a variable we're trying to
+# expand is just a single variable name.
+SINGLE_VAR = re.compile(r"{{\s*(\w*)\s*}}")
+
 JINJA2_OVERRIDE = '#jinja2:'
 JINJA2_ALLOWED_OVERRIDES = ['trim_blocks', 'lstrip_blocks', 'newline_sequence', 'keep_trailing_newline']
 
@@ -106,7 +111,6 @@ def lookup(name, *args, **kwargs):
 def template(basedir, varname, templatevars, lookup_fatal=True, depth=0, expand_lists=True, convert_bare=False, fail_on_undefined=False, filter_fatal=True):
     ''' templates a data structure by traversing it and substituting for other data structures '''
     from ansible import utils
-
     try:
         if convert_bare and isinstance(varname, basestring):
             first_part = varname.split(".")[0].split("[")[0]
@@ -117,10 +121,13 @@ def template(basedir, varname, templatevars, lookup_fatal=True, depth=0, expand_
             if '{{' in varname or '{%' in varname:
                 varname = template_from_string(basedir, varname, templatevars, fail_on_undefined)
 
-                if (varname.startswith("{") and not varname.startswith("{{")) or varname.startswith("["):
-                    eval_results = utils.safe_eval(varname, locals=templatevars, include_exceptions=True)
-                    if eval_results[1] is None:
-                        varname = eval_results[0]
+                # template_from_string may return non strings for the case where the var is just
+                # a reference to a single variable, so we should re_check before we do further evals
+                if isinstance(varname, basestring):
+                    if (varname.startswith("{") and not varname.startswith("{{")) or varname.startswith("["):
+                        eval_results = utils.safe_eval(varname, locals=templatevars, include_exceptions=True)
+                        if eval_results[1] is None:
+                            varname = eval_results[0]
 
             return varname
 
@@ -316,10 +323,18 @@ def template_from_file(basedir, path, vars, vault_password=None):
 
 def template_from_string(basedir, data, vars, fail_on_undefined=False):
     ''' run a string through the (Jinja2) templating engine '''
-
     try:
         if type(data) == str:
             data = unicode(data, 'utf-8')
+   
+            # Check to see if the string we are trying to render is just referencing a single
+            # var.  In this case we don't wont to accidentally change the type of the variable
+            # to a string by using the jinja template renderer. We just want to pass it. 
+            only_one = SINGLE_VAR.match(data)
+            if only_one:
+                var_name = only_one.group(1)
+                if var_name in vars:
+                    return vars[var_name]
 
         def my_finalize(thing):
             return thing if thing is not None else ''
